@@ -2,27 +2,31 @@ using CodedThought.Core.Data.Interfaces;
 using CodedThought.Core.Exceptions;
 
 using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.Extensions.Logging.Configuration;
+
+using Org.BouncyCastle.Asn1.X509.Qualified;
 
 using System.Data;
 using System.Data.Common;
 using System.Text;
+using NpgsqlTypes;
 
-namespace CodedThought.Core.Data.SqlServer
+namespace CodedThought.Core.Data.PostgreSQL
 {
 
     /// <summary>SqlServerDatabaseObject provides all SQLServer specific functionality needed by DBStore and its family of classes..</summary>
-    public class SqlServerDatabaseObject : DatabaseObject, IDatabaseObject
+    public class PostGreSQLDatabaseObject : DatabaseObject, IDatabaseObject, IDbSchema
     {
         #region Declarations
 
-        private SqlConnection _connection;
+        private NpgsqlConnection _connection;
 
         #endregion
 
         #region Constructor
 
-        public SqlServerDatabaseObject()
+        public PostGreSQLDatabaseObject() : base()
         {
             _connection = new();
         }
@@ -34,12 +38,12 @@ namespace CodedThought.Core.Data.SqlServer
         /// <summary>Commits updates and inserts. This is only for Oracle database operations.</summary>
         public override void Commit() => CommitTransaction();
 
+        public override IDbConnection Connection => _connection;
 
         /// <summary>Opens an SqlServer Connection</summary>
         /// <returns></returns>
         protected override IDbConnection OpenConnection()
         {
-            SqlConnection? sqlCn;
             try
             {
                 _connection = new(ConnectionString);
@@ -65,9 +69,9 @@ namespace CodedThought.Core.Data.SqlServer
             try
             {
                 OpenConnection();
-                return Connection.State == ConnectionState.Open;
+                return _connection.State == ConnectionState.Open;
             }
-            catch (CodedThoughtException ex)
+            catch
             {
                 throw;
             }
@@ -77,12 +81,12 @@ namespace CodedThought.Core.Data.SqlServer
         /// </summary>
         /// <param name="cmd"></param>
         /// <returns></returns>
-        protected override IDataAdapter CreateDataAdapter(IDbCommand cmd) => new SqlDataAdapter(cmd as SqlCommand);
+        protected override IDataAdapter CreateDataAdapter(IDbCommand cmd) => new Npgsql.NpgsqlDataAdapter(cmd as NpgsqlCommand);
 
         /// <summary>Convert any data type to Char</summary>
         /// <param name="columnName"></param>
         /// <returns></returns>
-        public override string ConvertToChar(string columnName) => "CONVERT(varchar, " + columnName + ")";
+        public override string ConvertToChar(string columnName) => "TO_CHAR(varchar, " + columnName + ")";
         /// <summary>Creates the parameter collection.</summary>
         /// <returns></returns>
         public override ParameterCollection CreateParameterCollection() => new(this);
@@ -106,9 +110,9 @@ namespace CodedThought.Core.Data.SqlServer
         /// <param name="srcTableColumnName">Name of the SRC table column.</param>
         /// <param name="paramType">         Type of the param.</param>
         /// <returns></returns>
-        private SqlParameter CreatDbServerParam(string srcTableColumnName, SqlDbType paramType)
+        private NpgsqlParameter CreatDbServerParam(string srcTableColumnName, NpgsqlDbType paramType)
         {
-            SqlParameter param = new(ToSafeParamName(srcTableColumnName), paramType);
+            NpgsqlParameter param = new(ToSafeParamName(srcTableColumnName), paramType);
             param.SourceColumn = srcTableColumnName;
             return param;
         }
@@ -118,9 +122,9 @@ namespace CodedThought.Core.Data.SqlServer
         /// <param name="paramType">         Type of the param.</param>
         /// <param name="size">              The size.</param>
         /// <returns></returns>
-        private SqlParameter CreatDbServerParam(string srcTableColumnName, SqlDbType paramType, int size)
+        private NpgsqlParameter CreatDbServerParam(string srcTableColumnName, NpgsqlDbType paramType, int size)
         {
-            SqlParameter param = new(ToSafeParamName(srcTableColumnName), paramType, size);
+            NpgsqlParameter param = new(ToSafeParamName(srcTableColumnName), paramType, size);
             param.SourceColumn = srcTableColumnName;
             return param;
         }
@@ -133,7 +137,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTaleColumnName, SqlDbType.Xml);
+            returnValue = CreatDbServerParam(srcTaleColumnName, NpgsqlDbType.Xml);
             returnValue.Value = parameterValue != string.Empty ? parameterValue : DBNull.Value;
             return returnValue;
         }
@@ -146,7 +150,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.Bit);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Bit);
             returnValue.Value = parameterValue;
             return returnValue;
         }
@@ -168,68 +172,63 @@ namespace CodedThought.Core.Data.SqlServer
                 {
                     case DbTypeSupported.dbNVarChar:
                         isNull = (extractedData == null || (string) extractedData == "");
-                        sqlDataType = (int) SqlDbType.NVarChar;
+                        sqlDataType = (int) NpgsqlDbType.Varchar;
                         break;
 
                     case DbTypeSupported.dbVarChar:
                         isNull = (extractedData == null || (string) extractedData == "");
-                        sqlDataType = (int) SqlDbType.VarChar;
+                        sqlDataType = (int) NpgsqlDbType.Varchar;
                         break;
 
                     case DbTypeSupported.dbInt64:
                         isNull = ((Int64) extractedData == Int64.MinValue);
-                        sqlDataType = (int) SqlDbType.BigInt;
+                        sqlDataType = (int) NpgsqlDbType.Bigint;
                         break;
 
                     case DbTypeSupported.dbInt32:
                         isNull = ((Int32) extractedData == int.MinValue);
-                        sqlDataType = (int) SqlDbType.Int;
+                        sqlDataType = (int) NpgsqlDbType.Integer;
                         break;
 
                     case DbTypeSupported.dbInt16:
                         isNull = ((Int16) extractedData == Int16.MinValue);
-                        sqlDataType = (int) SqlDbType.SmallInt;
+                        sqlDataType = (int) NpgsqlDbType.Smallint;
                         break;
 
                     case DbTypeSupported.dbDouble:
                         isNull = ((double) extractedData == double.MinValue);
-                        sqlDataType = (int) SqlDbType.Float;
+                        sqlDataType = (int) NpgsqlDbType.Double;
                         break;
 
                     case DbTypeSupported.dbDateTime:
                         isNull = ((DateTime) extractedData == DateTime.MinValue);
-                        sqlDataType = (int) SqlDbType.DateTime;
+                        sqlDataType = (int) NpgsqlDbType.Date;
                         break;
 
                     case DbTypeSupported.dbChar:
-                        isNull = (extractedData == null || System.Convert.ToString(extractedData) == "");
-                        sqlDataType = (int) SqlDbType.Char;
+                        isNull = (extractedData == null || Convert.ToString(extractedData) == "");
+                        sqlDataType = (int) NpgsqlDbType.Char;
                         break;
-
+                    case DbTypeSupported.dbImage:
+                    case DbTypeSupported.dbVarBinary:
                     case DbTypeSupported.dbBlob:    // Text, not Image
                         isNull = (extractedData == null);
-                        sqlDataType = (int) SqlDbType.Binary;
+                        sqlDataType = (int) NpgsqlDbType.Bytea;
                         break;
 
                     case DbTypeSupported.dbBit:
                         isNull = (extractedData == null);
-                        sqlDataType = (int) SqlDbType.Bit;
+                        sqlDataType = (int) NpgsqlDbType.Bit;
                         break;
 
                     case DbTypeSupported.dbDecimal:
                         isNull = ((decimal) extractedData == decimal.MinValue);
-                        sqlDataType = (int) SqlDbType.Decimal;
-                        break;
-
-                    case DbTypeSupported.dbImage:
-                    case DbTypeSupported.dbVarBinary:
-                        isNull = (extractedData == null);
-                        sqlDataType = (int) SqlDbType.VarBinary;
+                        sqlDataType = (int) NpgsqlDbType.Money;
                         break;
 
                     case DbTypeSupported.dbGUID:
                         isNull = ((Guid) extractedData == Guid.Empty);
-                        sqlDataType = (int) SqlDbType.UniqueIdentifier;
+                        sqlDataType = (int) NpgsqlDbType.Uuid;
                         break;
 
                     default:
@@ -241,7 +240,7 @@ namespace CodedThought.Core.Data.SqlServer
                 throw new Exceptions.CodedThoughtApplicationException("Error creating Parameter", ex);
             }
 
-            SqlParameter parameter = CreatDbServerParam(col.Name, (SqlDbType) sqlDataType);
+            NpgsqlParameter parameter = CreatDbServerParam(col.Name, (NpgsqlDbType) sqlDataType);
 
             parameter.Value = isNull ? DBNull.Value : extractedData;
 
@@ -254,7 +253,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = new SqlParameter();
+            returnValue = new NpgsqlParameter();
 
             return returnValue;
         }
@@ -269,59 +268,56 @@ namespace CodedThought.Core.Data.SqlServer
         public override IDataParameter CreateOutputParameter(string parameterName, DbTypeSupported returnType)
         {
             IDataParameter returnParam = null;
-            SqlDbType sqlType;
+            NpgsqlDbType sqlType;
             switch (returnType)
             {
                 case DbTypeSupported.dbNVarChar:
-                    sqlType = SqlDbType.NVarChar;
+                    sqlType = NpgsqlDbType.Varchar;
                     break;
 
                 case DbTypeSupported.dbVarChar:
-                    sqlType = SqlDbType.VarChar;
+                    sqlType = NpgsqlDbType.Varchar;
                     break;
 
                 case DbTypeSupported.dbInt64:
-                    sqlType = SqlDbType.BigInt;
+                    sqlType = NpgsqlDbType.Bigint;
                     break;
 
                 case DbTypeSupported.dbInt32:
-                    sqlType = SqlDbType.Int;
+                    sqlType = NpgsqlDbType.Integer;
                     break;
 
                 case DbTypeSupported.dbInt16:
-                    sqlType = SqlDbType.SmallInt;
+                    sqlType = NpgsqlDbType.Smallint;
                     break;
 
                 case DbTypeSupported.dbDouble:
-                    sqlType = SqlDbType.Float;
+                    sqlType = NpgsqlDbType.Double;
                     break;
 
                 case DbTypeSupported.dbDateTime:
-                    sqlType = SqlDbType.DateTime;
+                    sqlType = NpgsqlDbType.Date;
                     break;
 
                 case DbTypeSupported.dbChar:
-                    sqlType = SqlDbType.Char;
-                    break;
-
-                case DbTypeSupported.dbBlob:    // Text, not Image
-                    sqlType = SqlDbType.Binary;
-                    break;
-
-                case DbTypeSupported.dbBit:
-                    sqlType = SqlDbType.Bit;
-                    break;
-
-                case DbTypeSupported.dbDecimal:
-                    sqlType = SqlDbType.Decimal;
+                    sqlType = NpgsqlDbType.Char;
                     break;
 
                 case DbTypeSupported.dbImage:
-                    sqlType = SqlDbType.Image;
+                case DbTypeSupported.dbBlob:    // Text, not Image
+                    sqlType = NpgsqlDbType.Bytea;
+                    break;
+
+                case DbTypeSupported.dbBit:
+                    sqlType = NpgsqlDbType.Bit;
+                    break;
+
+                case DbTypeSupported.dbDecimal:
+                    sqlType = NpgsqlDbType.Money;
                     break;
 
                 case DbTypeSupported.dbGUID:
-                    sqlType = SqlDbType.UniqueIdentifier;
+                    sqlType = NpgsqlDbType.Uuid;
                     break;
 
                 default:
@@ -343,59 +339,53 @@ namespace CodedThought.Core.Data.SqlServer
         public override IDataParameter CreateReturnParameter(string parameterName, DbTypeSupported returnType)
         {
             IDataParameter returnParam = null;
-            SqlDbType sqlType;
+            NpgsqlDbType sqlType;
             switch (returnType)
             {
                 case DbTypeSupported.dbNVarChar:
-                    sqlType = SqlDbType.NVarChar;
+                    sqlType = NpgsqlDbType.Varchar;
                     break;
 
                 case DbTypeSupported.dbVarChar:
-                    sqlType = SqlDbType.VarChar;
+                    sqlType = NpgsqlDbType.Varchar;
                     break;
 
                 case DbTypeSupported.dbInt64:
-                    sqlType = SqlDbType.BigInt;
+                    sqlType = NpgsqlDbType.Bigint;
                     break;
 
                 case DbTypeSupported.dbInt32:
-                    sqlType = SqlDbType.Int;
+                    sqlType = NpgsqlDbType.Integer;
                     break;
 
                 case DbTypeSupported.dbInt16:
-                    sqlType = SqlDbType.SmallInt;
-                    break;
-
-                case DbTypeSupported.dbDouble:
-                    sqlType = SqlDbType.Float;
-                    break;
-
-                case DbTypeSupported.dbDateTime:
-                    sqlType = SqlDbType.DateTime;
-                    break;
-
-                case DbTypeSupported.dbChar:
-                    sqlType = SqlDbType.Char;
-                    break;
-
-                case DbTypeSupported.dbBlob:    // Text, not Image
-                    sqlType = SqlDbType.Binary;
-                    break;
-
-                case DbTypeSupported.dbBit:
-                    sqlType = SqlDbType.Bit;
+                    sqlType = NpgsqlDbType.Smallint;
                     break;
 
                 case DbTypeSupported.dbDecimal:
-                    sqlType = SqlDbType.Decimal;
+                case DbTypeSupported.dbDouble:
+                    sqlType = NpgsqlDbType.Money;
+                    break;
+
+                case DbTypeSupported.dbDateTime:
+                    sqlType = NpgsqlDbType.Date;
+                    break;
+
+                case DbTypeSupported.dbChar:
+                    sqlType = NpgsqlDbType.Char;
                     break;
 
                 case DbTypeSupported.dbImage:
-                    sqlType = SqlDbType.Image;
+                case DbTypeSupported.dbBlob:    // Text, not Image
+                    sqlType = NpgsqlDbType.Bytea;
+                    break;
+
+                case DbTypeSupported.dbBit:
+                    sqlType = NpgsqlDbType.Bit;
                     break;
 
                 case DbTypeSupported.dbGUID:
-                    sqlType = SqlDbType.UniqueIdentifier;
+                    sqlType = NpgsqlDbType.Uuid;
                     break;
 
                 default:
@@ -415,7 +405,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.NVarChar);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Varchar);
             returnValue.Value = parameterValue != string.Empty ? parameterValue : DBNull.Value;
 
             return returnValue;
@@ -429,7 +419,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.Int);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Integer);
             returnValue.Value = parameterValue != int.MinValue ? parameterValue : DBNull.Value;
 
             return returnValue;
@@ -443,7 +433,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.Float);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Money);
             returnValue.Value = parameterValue != double.MinValue ? parameterValue : DBNull.Value;
 
             return returnValue;
@@ -457,7 +447,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.DateTime);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Date);
             returnValue.Value = parameterValue != DateTime.MinValue ? parameterValue : DBNull.Value;
 
             return returnValue;
@@ -472,7 +462,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.VarChar);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Varchar);
             returnValue.Value = parameterValue != string.Empty ? parameterValue : DBNull.Value;
 
             return returnValue;
@@ -487,7 +477,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.Text, size);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Bytea, size);
             returnValue.Value = parameterValue;
 
             return returnValue;
@@ -501,7 +491,7 @@ namespace CodedThought.Core.Data.SqlServer
         {
             IDataParameter returnValue = null;
 
-            returnValue = CreatDbServerParam(srcTableColumnName, SqlDbType.UniqueIdentifier);
+            returnValue = CreatDbServerParam(srcTableColumnName, NpgsqlDbType.Uuid);
             returnValue.Value = parameterValue;
 
             return returnValue;
@@ -557,14 +547,14 @@ namespace CodedThought.Core.Data.SqlServer
                 if (store.HasKeyColumn(obj))
                 {
                     //Check if we have an identity Column
-                    sql.Append("SELECT SCOPE_IDENTITY() ");
+                    sql.Append($" RETURNING {columns.Where(c => c.IsIdentity).FirstOrDefault().Name}");
                     // ExecuteScalar will execute both the INSERT statement and the SELECT statement.
-                    int retval = System.Convert.ToInt32(ExecuteScalar(sql.ToString(), System.Data.CommandType.Text, parameters));
+                    int retval = Convert.ToInt32(ExecuteScalar(sql.ToString(), CommandType.Text, parameters));
                     store.SetPrimaryKey(obj, retval);
                 }
                 else
                 {
-                    ExecuteNonQuery(sql.ToString(), System.Data.CommandType.Text, parameters);
+                    ExecuteNonQuery(sql.ToString(), CommandType.Text, parameters);
                 }
 
                 // this is the way to get the CONTEXT_INFO of a SQL connection session string contextInfo = System.Convert.ToString( ExecuteScalar( "SELECT dbo.AUDIT_LOG_GET_USER_NAME() ",
@@ -647,7 +637,7 @@ namespace CodedThought.Core.Data.SqlServer
             {
                 // Reposition the start index to the end of the last buffer and fill the buffer.
                 startIndex += bufferSize;
-                retval = sqlReader.GetBytes(position, startIndex, outBytes, System.Convert.ToInt32(startIndex), bufferSize);
+                retval = sqlReader.GetBytes(position, startIndex, outBytes, Convert.ToInt32(startIndex), bufferSize);
             }
 
             return outBytes;
@@ -665,7 +655,7 @@ namespace CodedThought.Core.Data.SqlServer
             int position = reader.GetOrdinal(columnName);
             string returnValue = string.Empty;
 
-            returnValue = System.Text.Encoding.ASCII.GetString(GetBlobValue(reader, columnName));
+            returnValue = Encoding.ASCII.GetString(GetBlobValue(reader, columnName));
 
             return returnValue;
         }
@@ -676,7 +666,7 @@ namespace CodedThought.Core.Data.SqlServer
 
         public override string ConnectionName => base.ConnectionName;
 
-        public override DBSupported SupportedDatabase => DBSupported.SqlServer;
+        public override DBSupported SupportedDatabase => DBSupported.PostgreSQL;
 
         public override string GetTableName(string defaultSchema, string tableName)
         {
@@ -685,81 +675,28 @@ namespace CodedThought.Core.Data.SqlServer
             {
                 if (String.IsNullOrEmpty(DefaultSchemaName))
                 {
-                    schemaName = "dbo";
+                    schemaName = "public";
                 }
             }
-            return $"[{schemaName}].[{tableName}]";
+            return $"{schemaName}.{tableName}";
 
         }
-        public override string GetSchemaName() => DefaultSchemaName == string.Empty ? "[dbo]" : $"[{DefaultSchemaName}]";
-        /// <summary>
-        /// Gets the current session default schema name.
-        /// </summary>
-        /// <returns></returns>
-        protected override String GetDefaultSessionSchemaNameQuery()
-        {
-            try
-            {
-                return "SELECT SCHEMA_NAME()";
-            }
-            catch (Exception)
-            {
+        public override string GetSchemaName() => DefaultSchemaName == string.Empty ? "public" : $"{DefaultSchemaName}";
 
-                throw;
-            }
-        }
 
         #region Schema Definition Queries
-        /// <summary>
-        /// Gets the query necessary to get a table's high level schema.  This does not include the columns.
-        /// </summary>
-        /// <param name="tableName"></param>
-        /// <returns></returns>
-        /// <exception cref="NotImplementedException"></exception>
-        public override string GetTableSchemaDefinitionsQuery(string? tableName)
-        {
-            try
-            {
-                if (!String.IsNullOrEmpty(tableName))
-                {
-                    return $"SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{tableName}'";
-                }
-                else
-                {
-                    return "SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME";
-                }
-            }
-            catch (Exception)
-            {
 
-                throw;
-            }
-        }
         /// <summary>
-        /// Gets the query necessary to get a view's high level schema.  This does not include the columns.
+        /// Gets the query used to list all tables in the database.
         /// </summary>
-        /// <param name="viewName"></param>
         /// <returns></returns>
-        /// <exception cref="NotImplementedException"></exception>
-        public override string GetViewSchemaDefinitionQuery(string? viewName)
-        {
-            try
-            {
-                if (!String.IsNullOrEmpty(viewName))
-                {
-                    return $"SELECT * FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_NAME = '{viewName}'";
-                }
-                else
-                {
-                    return "SELECT * FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_NAME";
-                }
-            }
-            catch (Exception)
-            {
+        public override string GetTableListQuery() => $"SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema='{GetSchemaName()}' AND table_type='BASE TABLE'";
+        /// <summary>
+        /// Gets the query used to list all views in the database.
+        /// </summary>
+        /// <returns></returns>
+        public override string GetViewListQuery() => $"SELECT table_name, table_schema, view_definition FROM information_schema.views WHERE table_schema='{GetSchemaName()}'";
 
-                throw;
-            }
-        }
         /// <summary>
         /// Gets the table's column definition query.
         /// </summary>
@@ -774,7 +711,7 @@ namespace CodedThought.Core.Data.SqlServer
                 // Remove any brackets since the definitiion query doesn't support that.
                 string tName = tableName.Replace("[", "").Replace("]", "");
                 string schemaName = DefaultSchemaName.Replace("[", "").Replace("]", "");
-                if (tName.Split(".".ToCharArray()).Length > 0)
+                if (tName.Split(".".ToCharArray()).Length > 1)
                 {
                     // The schema name appears to have been passed along with the table name. So parse them out and use them instead of the default values.
                     string[] tableNameData = tName.Split(".".ToCharArray());
@@ -784,9 +721,9 @@ namespace CodedThought.Core.Data.SqlServer
                 sql.Append("SELECT C.COLUMN_NAME, C.DATA_TYPE, ");
                 sql.Append("CASE WHEN C.IS_NULLABLE = 'NO' THEN 0 ELSE 1 END as IS_NULLABLE, ");
                 sql.Append("CASE WHEN C.CHARACTER_MAXIMUM_LENGTH IS NULL THEN 0 ELSE C.CHARACTER_MAXIMUM_LENGTH END AS CHARACTER_MAXIMUM_LENGTH, ");
-                sql.Append("C.ORDINAL_POSITION - 1 as ORDINAL_POSITION,	COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') as IS_IDENTITY ");
+                sql.Append("C.ORDINAL_POSITION - 1 as ORDINAL_POSITION, ");
+                sql.Append("CASE WHEN C.IS_IDENTITY = 'NO' THEN 0 ELSE 1 END as IS_IDENTITY ");
                 sql.Append("FROM INFORMATION_SCHEMA.COLUMNS C ");
-                sql.Append("LEFT OUTER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE K ON C.COLUMN_NAME = K.COLUMN_NAME AND C.TABLE_NAME = K.TABLE_NAME ");
                 sql.AppendFormat("WHERE C.TABLE_NAME = '{0}' AND C.TABLE_SCHEMA = '{1}' ORDER BY C.ORDINAL_POSITION", tName, schemaName);
 
                 return sql.ToString();
@@ -797,10 +734,11 @@ namespace CodedThought.Core.Data.SqlServer
             }
         }
         /// <summary>
-        /// Gets the view's column definition query.
+        /// Gets the query necessary to get a view's high level schema.  This does not include the columns.
         /// </summary>
         /// <param name="viewName"></param>
         /// <returns></returns>
+        /// <exception cref="NotImplementedException"></exception>
         public override string GetViewDefinitionQuery(string viewName)
         {
             try
@@ -814,11 +752,33 @@ namespace CodedThought.Core.Data.SqlServer
             }
         }
 
+        /// <summary>
+        /// Gets the current session default schema name.
+        /// </summary>
+        /// <returns></returns>
+        public override String GetDefaultSessionSchemaNameQuery()
+        {
+            try
+            {
+                return "SELECT CURRENT_SCHEMA()";
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+
         #endregion Schema Definition Queries
 
         #region Schema Methods
 
-        public override IEnumerable<ITableColumn> GetTableDefinition(string tableName)
+        /// <summary>
+        /// Gets an enumerable list of <see cref="TableColumn"/> objects for the passed table.
+        /// </summary>
+        /// <param name="tableName"></param>
+        /// <returns></returns>
+        public override List<TableColumn> GetTableDefinition(string tableName)
         {
             try
             {
@@ -832,6 +792,7 @@ namespace CodedThought.Core.Data.SqlServer
                         Name = row["COLUMN_NAME"].ToString(),
                         IsNullable = Convert.ToBoolean(row["IS_NULLABLE"]),
                         SystemType = ToSystemType(row["DATA_TYPE"].ToString()),
+                        Type = ToDbSupportedType(row["DATA_TYPE"].ToString()),
                         MaxLength = Convert.ToInt32(row["CHARACTER_MAXIMUM_LENGTH"]),
                         IsIdentity = Convert.ToBoolean(row["IS_IDENTITY"]),
                         OrdinalPosition = Convert.ToInt32(row["ORDINAL_POSITION"])
@@ -843,7 +804,12 @@ namespace CodedThought.Core.Data.SqlServer
             }
             catch { throw; }
         }
-        public override IEnumerable<ITableColumn> GetViewDefinition(string viewName)
+        /// <summary>
+        /// Gets an enumerable list of <see cref="TableColumn"/> objects for the passed view.
+        /// </summary>
+        /// <param name="viewName"></param>
+        /// <returns></returns>
+        public override List<TableColumn> GetViewDefinition(string viewName)
         {
             try
             {
@@ -855,16 +821,16 @@ namespace CodedThought.Core.Data.SqlServer
             }
         }
         /// <summary>
-        /// Gets table schemas for all tables unless the tableName argument is passed as a filter.
+        /// Gets an enumerable list of <see cref="TableSchema"/> objects unless tableName is passed to filter it.
         /// </summary>
         /// <param name="tableName"></param>
         /// <returns></returns>
-        public override IEnumerable<ITableSchema> GetTableDefinitions(string tableName)
+        public override List<TableSchema> GetTableDefinitions()
         {
             try
             {
                 List<TableSchema> tableDefinitions = [];
-                DataTable dtTables = ExecuteDataTable(GetTableSchemaDefinitionsQuery(tableName));
+                DataTable dtTables = ExecuteDataTable(GetTableListQuery());
                 foreach (DataRow row in dtTables.Rows)
                 {
                     TableSchema tableSchema = new()
@@ -873,7 +839,7 @@ namespace CodedThought.Core.Data.SqlServer
                         Owner = row["TABLE_SCHEMA"].ToString(),
                         Columns = []
                     };
-                    DataTable dtColumns = ExecuteDataTable(GetTableDefinitionQuery(tableName));
+                    DataTable dtColumns = ExecuteDataTable(GetTableDefinitionQuery(tableSchema.Name));
                     foreach (DataRow col in dtColumns.Rows)
                     {
                         TableColumn column = new("", DbTypeSupported.dbVarChar, 0, true)
@@ -881,10 +847,12 @@ namespace CodedThought.Core.Data.SqlServer
                             Name = col["COLUMN_NAME"].ToString(),
                             IsNullable = Convert.ToBoolean(col["IS_NULLABLE"]),
                             SystemType = ToSystemType(col["DATA_TYPE"].ToString()),
+                            Type = ToDbSupportedType(col["DATA_TYPE"].ToString()),
                             MaxLength = Convert.ToInt32(col["CHARACTER_MAXIMUM_LENGTH"]),
                             IsIdentity = Convert.ToBoolean(col["IS_IDENTITY"]),
                             OrdinalPosition = Convert.ToInt32(col["ORDINAL_POSITION"])
                         };
+                        column.DbType = ToDbType(column.SystemType);
                         // Add this column to the list.
                         tableSchema.Columns.Add(column);
                     }
@@ -896,17 +864,17 @@ namespace CodedThought.Core.Data.SqlServer
             catch { throw; }
         }
         /// <summary>
-        /// Gets an enumerable list of columns for this table.
+        /// Gets an enumerable list of <see cref="ViewSchema"/> objects unless viewName is passed to filter it.
         /// </summary>
         /// <param name="tableName"></param>
         /// <returns></returns>
-        public override IEnumerable<IViewSchema> GetViewDefinitions(string viewName)
+        public override List<ViewSchema> GetViewDefinitions()
         {
             try
             {
 
                 List<ViewSchema> viewDefinitions = [];
-                DataTable dtTables = ExecuteDataTable(GetViewSchemaDefinitionQuery(viewName));
+                DataTable dtTables = ExecuteDataTable(GetViewListQuery());
                 foreach (DataRow row in dtTables.Rows)
                 {
                     ViewSchema viewSchema = new()
@@ -915,7 +883,7 @@ namespace CodedThought.Core.Data.SqlServer
                         Owner = row["TABLE_SCHEMA"].ToString(),
                         Columns = []
                     };
-                    DataTable dtColumns = ExecuteDataTable(GetViewDefinitionQuery(viewName));
+                    DataTable dtColumns = ExecuteDataTable(GetViewDefinitionQuery(viewSchema.Name));
                     foreach (DataRow col in dtColumns.Rows)
                     {
                         TableColumn column = new("", DbTypeSupported.dbVarChar, 0, true)
@@ -927,6 +895,8 @@ namespace CodedThought.Core.Data.SqlServer
                             IsIdentity = Convert.ToBoolean(col["IS_IDENTITY"]),
                             OrdinalPosition = Convert.ToInt32(col["ORDINAL_POSITION"])
                         };
+                        column.DbType = ToDbType(column.SystemType);
+
                         // Add this column to the list.
                         viewSchema.Columns.Add(column);
                     }
@@ -947,7 +917,7 @@ namespace CodedThought.Core.Data.SqlServer
         /// <summary>Gets SQL syntax of Year</summary>
         /// <param name="dateString"></param>
         /// <returns></returns>
-        public override string GetYearSQLSyntax(string dateString) => "YEAR(" + dateString + ")";
+        public override string GetYearSQLSyntax(string dateString) => $"EXTRACT(YEAR FROM TIMESTAMP, '{dateString}')";
 
         /// <summary>Gets database function name</summary>
         /// <param name="functionName"></param>
@@ -966,11 +936,11 @@ namespace CodedThought.Core.Data.SqlServer
                     break;
 
                 case FunctionName.CURRENTDATE:
-                    retStr = "GETDATE()";
+                    retStr = "CURRENT_DATE";
                     break;
 
                 case FunctionName.CONCATENATE:
-                    retStr = "+";
+                    retStr = "CONCAT";
                     break;
             }
             return retStr;
@@ -986,15 +956,15 @@ namespace CodedThought.Core.Data.SqlServer
             switch (dateFormat)
             {
                 case DateFormat.MMDDYYYY:
-                    sb.Append(" CONVERT(VARCHAR, ").Append(columnName).Append(", 101) ");
+                    sb.Append($" TO_CHAR({columnName}, 'MM/DD/YYYY')");
                     break;
 
                 case DateFormat.MMDDYYYY_Hyphen:
-                    sb.Append(" CONVERT(VARCHAR, ").Append(columnName).Append(", 110) ");
+                    sb.Append($" TO_CHAR({columnName}, 'MM-DD-YYYY')");
                     break;
 
                 case DateFormat.MonDDYYYY:
-                    sb.Append(" CONVERT(VARCHAR, ").Append(columnName).Append(", 107) ");
+                    sb.Append($" TO_CHAR({columnName}, 'mon DD, YYYY')");
                     break;
 
                 default:
@@ -1014,15 +984,15 @@ namespace CodedThought.Core.Data.SqlServer
             switch (dateFormat)
             {
                 case DateFormat.MMDDYYYY:
-                    sb.Append(" CONVERT(VARCHAR, \"").Append(value).Append("\", 101) ");
+                    sb.Append($" TO_CHAR('{value}', 'MM/DD/YYYY')");
                     break;
 
                 case DateFormat.MMDDYYYY_Hyphen:
-                    sb.Append(" CONVERT(VARCHAR, \"").Append(value).Append("\", 110) ");
+                    sb.Append($" TO_CHAR('{value}', 'MM-DD-YYYY')");
                     break;
 
                 case DateFormat.MonDDYYYY:
-                    sb.Append(" CONVERT(VARCHAR, \"").Append(value).Append("\", 107) ");
+                    sb.Append($" TO_CHAR('{value}', 'mon DD, YYYY')");
                     break;
 
                 default:
@@ -1045,30 +1015,30 @@ namespace CodedThought.Core.Data.SqlServer
 
             sb.Append(" (CASE ").Append(columnName);
             sb.Append(" WHEN ").Append(equalValue);
-            sb.Append(" THEN ").Append(trueValue).Append(" ELSE ").Append(falseValue).Append(" END) ");
+            sb.Append(" THEN ").Append(trueValue).Append(" ELSE ").Append(falseValue).Append(" END CASE) ");
             sb.Append(alias).Append(" ");
 
             return sb.ToString();
         }
 
-        /// <summary>Get an IsNull (SQLServer) or NVL (Oracle)</summary>
+        /// <summary>Get an IsNull function</summary>
         /// <param name="validateColumnName"></param>
         /// <param name="optionColumnName">  </param>
         /// <returns></returns>
-        public override string GetIfNullFunction(string validateColumnName, string optionColumnName) => " IsNULL(" + validateColumnName + ", " + optionColumnName + ") ";
+        public override string GetIfNullFunction(string validateColumnName, string optionColumnName) => " ISNULL(" + validateColumnName + ", " + optionColumnName + ") ";
 
         /// <summary>Get a function name for NULL validation</summary>
         /// <returns></returns>
-        public override string GetIfNullFunction() => "IsNULL";
+        public override string GetIfNullFunction() => "ISNULL";
 
         /// <summary>Get a function name that return current date</summary>
         /// <returns></returns>
-        public override string GetCurrentDateFunction() => "GETDATE()";
+        public override string GetCurrentDateFunction() => "CURRENT_DATE";
 
         /// <summary>Get a database specific date only SQL syntax.</summary>
         /// <param name="dateColumn"></param>
         /// <returns></returns>
-        public override string GetDateOnlySqlSyntax(string dateColumn) => "CONVERT(VARCHAR, " + dateColumn + ", 107)";
+        public override string GetDateOnlySqlSyntax(string dateColumn) => $"TO_CHAR('{dateColumn}', 'mon DD, YYYY')";
 
         /// <summary>Get a database specific syntax that converts string to date. Oracle does not convert date string to date implicitly like SQL Server does when there is a date comparison.</summary>
         /// <param name="dateString"></param>
@@ -1102,7 +1072,7 @@ namespace CodedThought.Core.Data.SqlServer
                     datePartstring = "year";
                     break;
             }
-            string result = "DATEPART( " + datePartstring + ", '" + datestring + "')";
+            string result = "date_part( " + datePartstring + ", '" + datestring + "')";
             return result;
         }
 
@@ -1115,64 +1085,34 @@ namespace CodedThought.Core.Data.SqlServer
         /// <summary>Converts a database type name to a system type.</summary>
         /// <param name="dbTypeName">Name of the db type.</param>
         /// <returns>System.Type</returns>
-        public override System.Type ToSystemType(string dbTypeName)
+        public override System.Type ToSystemType(string dbTypeName) => dbTypeName.ToLower() switch
         {
-            switch (dbTypeName.ToLower())
-            {
-                case "bigint":
-                    return typeof(System.Int64);
+            "varbinary" or "binary" or "timestamp" => typeof(System.Byte[]),
+            "boolean" or "bool" => typeof(System.Boolean),
+            "character" or "char" or "varying" or "varchar" => typeof(System.String),
+            "date" or "time" or "timestamp" or "timestamptz" => typeof(System.DateTime),
+            "decimal" or "smallmoney" or "money" => typeof(System.Decimal),
+            "float" => typeof(System.Double),
+            "bigint" => typeof(System.Int64),
+            "int" => typeof(System.Int32),
+            "smallint" or "tinyint" => typeof(System.Int16),
+            "UUID" => typeof(System.Guid),
+            _ => typeof(System.String)
+        };
 
-                case "varbinary":
-                case "binary":
-                case "timestamp":
-                    return typeof(System.Byte[]);
-
-                case "bit":
-                    return typeof(System.Boolean);
-
-                case "char":
-                case "nchar":
-                case "ntext":
-                case "nvarchar":
-                case "text":
-                case "varchar":
-                    return typeof(System.String);
-
-                case "date":
-                case "datetime":
-                case "datetime2":
-                    return typeof(System.DateTime);
-
-                case "decimal":
-                case "smallmoney":
-                case "money":
-                    return typeof(System.Decimal);
-
-                case "float":
-                    return typeof(System.Double);
-
-                case "int":
-                    return typeof(System.Int32);
-
-                case "smallint":
-                    return typeof(System.Int16);
-
-                case "variant":
-                    return typeof(System.Object);
-
-                case "time":
-                    return typeof(System.TimeSpan);
-
-                case "tinyint":
-                    return typeof(System.Byte);
-
-                case "uniqueidentifier":
-                    return typeof(System.Guid);
-
-                default:
-                    return typeof(System.String);
-            }
-        }
+        public override DbTypeSupported ToDbSupportedType(string dbTypeName) => dbTypeName.ToLower() switch
+        {
+            "varbinary" or "binary" or "timestamp" => DbTypeSupported.dbVarBinary,
+            "boolean" or "bool" => DbTypeSupported.dbBit,
+            "character" or "char" or "varying" or "varchar" => DbTypeSupported.dbVarChar,
+            "date" or "time" or "timestamp" or "timestamptz" => DbTypeSupported.dbDateTime,
+            "decimal" or "smallmoney" or "money" => DbTypeSupported.dbDouble,
+            "bigint" => DbTypeSupported.dbInt64,
+            "int" => DbTypeSupported.dbInt32,
+            "smallint" or "tinyint" => DbTypeSupported.dbInt16,
+            "UUID" => DbTypeSupported.dbGUID,
+            _ => DbTypeSupported.dbVarChar
+        };
 
         #endregion Database Specific
 
