@@ -24,14 +24,15 @@
 	<IncludeReferencedProjects>true</IncludeReferencedProjects>
 	<AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
 	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<Copyright>Copyright (c) 2024, Erik Bartlow, All Rights Reserved</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+	<PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CodedThought.Core\CodedThought.Core\CodedThought.Core.csproj" />
+	<ProjectReference Include="..\CodedThought.Core\CodedThought.Core\CodedThought.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
