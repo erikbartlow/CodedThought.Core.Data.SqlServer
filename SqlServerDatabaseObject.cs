@@ -34,7 +34,6 @@ namespace CodedThought.Core.Data.SqlServer
         /// <summary>Commits updates and inserts. This is only for Oracle database operations.</summary>
         public override void Commit() => CommitTransaction();
 
-
         /// <summary>Opens an SqlServer Connection</summary>
         /// <returns></returns>
         protected override IDbConnection OpenConnection()
@@ -55,6 +54,11 @@ namespace CodedThought.Core.Data.SqlServer
         #endregion Transaction and Connection Methods
 
         #region Other Override Methods
+        /// <summary>
+        /// Returns the active connection. If the stack has a connection then it is returned.
+        /// connection is created.
+        /// </summary>
+        public override IDbConnection Connection => _connection == null ? (SqlConnection) base.Connection : (SqlConnection) _connection;
 
         /// <summary>
         /// Tests the connection to the database.
