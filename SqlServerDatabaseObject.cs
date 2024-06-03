@@ -4,6 +4,8 @@ using CodedThought.Core.Exceptions;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging.Configuration;
 
+using Org.BouncyCastle.Security.Certificates;
+
 using System.Data;
 using System.Data.Common;
 using System.Text;
@@ -38,11 +40,11 @@ namespace CodedThought.Core.Data.SqlServer
         /// <returns></returns>
         protected override IDbConnection OpenConnection()
         {
-            SqlConnection? sqlCn;
             try
             {
-                _connection = new(ConnectionString);
-                _connection.Open();
+                if( String.IsNullOrEmpty(_connection.ConnectionString)) _connection = new(ConnectionString);
+                if (_connection.State != ConnectionState.Open)
+                    _connection.Open();
                 return _connection;
             }
             catch (SqlException ex)
@@ -50,16 +52,6 @@ namespace CodedThought.Core.Data.SqlServer
                 throw new Exceptions.CodedThoughtApplicationException("Could not open Connection.  Check connection string" + "/r/n" + ex.Message + "/r/n" + ex.StackTrace, ex);
             }
         }
-
-        #endregion Transaction and Connection Methods
-
-        #region Other Override Methods
-        /// <summary>
-        /// Returns the active connection. If the stack has a connection then it is returned.
-        /// connection is created.
-        /// </summary>
-        public override IDbConnection Connection => _connection == null ? (SqlConnection) base.Connection : (SqlConnection) _connection;
-
         /// <summary>
         /// Tests the connection to the database.
         /// </summary>
@@ -71,11 +63,21 @@ namespace CodedThought.Core.Data.SqlServer
                 OpenConnection();
                 return Connection.State == ConnectionState.Open;
             }
-            catch (CodedThoughtException ex)
+            catch (CodedThoughtException)
             {
                 throw;
             }
         }
+        #endregion Transaction and Connection Methods
+
+        #region Other Override Methods
+        /// <summary>
+        /// Returns the active connection. If the stack has a connection then it is returned.
+        /// connection is created.
+        /// </summary>
+        public override IDbConnection Connection => _connection == null ? (SqlConnection) base.Connection : (SqlConnection) _connection;
+
+
         /// <summary>
         /// Creates a Sql Data Adapter object with the passed Command object.
         /// </summary>
@@ -603,6 +605,40 @@ namespace CodedThought.Core.Data.SqlServer
         #region GetValue Methods
 
         /// <summary>
+        /// Gets a data reader based on table name, columns names etc.
+        /// </summary>
+        /// <returns><see cref="IDataReader"/></returns>
+        /// <remarks>The schema name is no longer utilized.  Please pass the entire table name.</remarks>
+        public override IDataReader Get(string tableName, string schemaName, List<string> selectColumns, ParameterCollection parameters, List<string> orderByColumns)
+        {
+            IDataReader reader = null;
+            try
+            {
+                StringBuilder sql = new("SELECT ");
+                sql.Append(GenerateColumnList(selectColumns));
+                sql.Append($" FROM {GetTableName(schemaName, tableName)}");
+                sql.Append(" WITH (READPAST)");
+                if (parameters != null && parameters.Count > 0)
+                {
+                    sql.Append(" WHERE " + GenerateWhereClauseFromParams(parameters));
+                }
+
+                sql.Append(GenerateOrderByClause(orderByColumns));
+                reader = ExecuteReader(sql.ToString(), parameters);
+            }
+            catch (Exception ex)
+            {
+                throw new Exceptions.CodedThoughtApplicationException("Failed to add retrieve data from: " + tableName, ex);
+            }
+            finally
+            {
+                CommitTransaction();
+            }
+
+            return reader;
+        }
+
+        /// <summary>
         /// Get a BLOB from a TEXT or IMAGE column.
         /// In order to get BLOB, a IDataReader's CommandBehavior must be set to SequentialAccess.
         /// That also means to Get columns in sequence is extremely important.
@@ -684,18 +720,14 @@ namespace CodedThought.Core.Data.SqlServer
 
         public override string GetTableName(string defaultSchema, string tableName)
         {
-            string? schemaName = defaultSchema;
-            if (String.IsNullOrEmpty(schemaName))
+            if (String.IsNullOrEmpty(defaultSchema))
             {
-                if (String.IsNullOrEmpty(DefaultSchemaName))
-                {
-                    schemaName = "dbo";
-                }
+                defaultSchema = GetSchemaName();
             }
-            return $"[{schemaName}].[{tableName}]";
+            return $"[{defaultSchema}].[{tableName}]";
 
         }
-        public override string GetSchemaName() => DefaultSchemaName == string.Empty ? "[dbo]" : $"[{DefaultSchemaName}]";
+        public override string GetSchemaName() => DefaultSchemaName == string.Empty ? "dbo" : DefaultSchemaName;
         /// <summary>
         /// Gets the current session default schema name.
         /// </summary>
@@ -748,9 +780,13 @@ namespace CodedThought.Core.Data.SqlServer
                 sql.Append("SELECT C.COLUMN_NAME, C.DATA_TYPE, ");
                 sql.Append("CASE WHEN C.IS_NULLABLE = 'NO' THEN 0 ELSE 1 END as IS_NULLABLE, ");
                 sql.Append("CASE WHEN C.CHARACTER_MAXIMUM_LENGTH IS NULL THEN 0 ELSE C.CHARACTER_MAXIMUM_LENGTH END AS CHARACTER_MAXIMUM_LENGTH, ");
-                sql.Append("C.ORDINAL_POSITION - 1 as ORDINAL_POSITION,	COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') as IS_IDENTITY ");
+                sql.Append("C.ORDINAL_POSITION - 1 as ORDINAL_POSITION, COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') as IS_IDENTITY, ");
+                sql.Append("CASE WHEN C2.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS IS_PRIMARY_KEY ");
                 sql.Append("FROM INFORMATION_SCHEMA.COLUMNS C ");
-                sql.Append("LEFT OUTER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE K ON C.COLUMN_NAME = K.COLUMN_NAME AND C.TABLE_NAME = K.TABLE_NAME ");
+                sql.Append("LEFT OUTER JOIN ( ");
+                sql.Append("SELECT CON.*, T.CONSTRAINT_TYPE FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T ");
+                sql.Append("INNER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE CON ON CON.CONSTRAINT_NAME = T.CONSTRAINT_NAME) ");
+                sql.Append("C2 ON C2.COLUMN_NAME = C.COLUMN_NAME AND C2.TABLE_NAME = C.TABLE_NAME ");
                 sql.AppendFormat("WHERE C.TABLE_NAME = '{0}' AND C.TABLE_SCHEMA = '{1}' ORDER BY C.ORDINAL_POSITION", tName, schemaName);
 
                 return sql.ToString();
@@ -800,6 +836,7 @@ namespace CodedThought.Core.Data.SqlServer
                         IsNullable = Convert.ToBoolean(row["IS_NULLABLE"]),
                         SystemType = ToSystemType(row["DATA_TYPE"].ToString()),
                         Type = ToDbSupportedType(row["DATA_TYPE"].ToString()),
+                        DbType = ToDbType(ToSystemType(row["DATA_TYPE"].ToString())),
                         MaxLength = Convert.ToInt32(row["CHARACTER_MAXIMUM_LENGTH"]),
                         IsIdentity = Convert.ToBoolean(row["IS_IDENTITY"]),
                         OrdinalPosition = Convert.ToInt32(row["ORDINAL_POSITION"])
@@ -1008,6 +1045,7 @@ namespace CodedThought.Core.Data.SqlServer
             "bit" => typeof(System.Boolean),
             "char" or "nchar" or "ntext" or "nvarchar" or "text" or "varchar" => typeof(System.String),
             "date" or "datetime" or "datetime2" => typeof(System.DateTime),
+            "numeric" => typeof(System.Decimal),
             "decimal" or "smallmoney" or "money" => typeof(System.Decimal),
             "float" => typeof(System.Double),
             "int" => typeof(System.Int32),
@@ -1033,6 +1071,7 @@ namespace CodedThought.Core.Data.SqlServer
             "text" or "varchar" => DbTypeSupported.dbVarChar,
             "date" or "datetime" => DbTypeSupported.dbDateTime,
             "datetime2" => DbTypeSupported.dbDateTime2,
+            "numeric" => DbTypeSupported.dbNumeric,
             "decimal" or "smallmoney" or "money" => DbTypeSupported.dbDecimal,
             "float" => DbTypeSupported.dbDouble,
             "int" => DbTypeSupported.dbInt32,
@@ -1072,10 +1111,13 @@ namespace CodedThought.Core.Data.SqlServer
                             IsNullable = Convert.ToBoolean(col["IS_NULLABLE"]),
                             SystemType = ToSystemType(col["DATA_TYPE"].ToString()),
                             Type = ToDbSupportedType(col["DATA_TYPE"].ToString()),
+                            DbType = ToDbType(ToDbSupportedType(col["DATA_TYPE"].ToString())),
                             MaxLength = Convert.ToInt32(col["CHARACTER_MAXIMUM_LENGTH"]),
                             IsIdentity = Convert.ToBoolean(col["IS_IDENTITY"]),
+                            IsPrimary = Convert.ToBoolean(col["IS_PRIMARY_KEY"]),
                             OrdinalPosition = Convert.ToInt32(col["ORDINAL_POSITION"])
                         };
+                        column.DbType = ToDbType(column.SystemType);
                         // Add this column to the list.
                         tableSchema.Columns.Add(column);
                     }
@@ -1114,8 +1156,11 @@ namespace CodedThought.Core.Data.SqlServer
                             Name = col["COLUMN_NAME"].ToString(),
                             IsNullable = Convert.ToBoolean(col["IS_NULLABLE"]),
                             SystemType = ToSystemType(col["DATA_TYPE"].ToString()),
+                            Type = ToDbSupportedType(col["DATA_TYPE"].ToString()),
+                            DbType = ToDbType(ToDbSupportedType(col["DATA_TYPE"].ToString())),
                             MaxLength = Convert.ToInt32(col["CHARACTER_MAXIMUM_LENGTH"]),
                             IsIdentity = Convert.ToBoolean(col["IS_IDENTITY"]),
+                            IsPrimary = Convert.ToBoolean(col["IS_PRIMARY_KEY"]),
                             OrdinalPosition = Convert.ToInt32(col["ORDINAL_POSITION"])
                         };
                         // Add this column to the list.
