@@ -4,10 +4,10 @@
 	<TargetFramework>net8.0</TargetFramework>
 	<ImplicitUsings>enable</ImplicitUsings>
 	<Nullable>enable</Nullable>
-	<AssemblyVersion>8.0.0.16</AssemblyVersion>
-	<FileVersion>8.0.0.16</FileVersion>
-	<VersionPrefix>8.0.0.16</VersionPrefix>
-	<Version>8.0.0-beta-6</Version>
+	<AssemblyVersion>8.0.0.17</AssemblyVersion>
+	<FileVersion>8.0.0.17</FileVersion>
+	<VersionPrefix>8.0.0.17</VersionPrefix>
+	<Version>8.0.0-beta-7</Version>
 	<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 	<Title>CodedThought.Core.Data.SqlServer</Title>
 	<Authors>Erik Bartlow</Authors>
@@ -31,9 +31,21 @@
 	<PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
   </ItemGroup>
 
-  <ItemGroup>
-	<ProjectReference Include="..\CodedThought.Core\CodedThought.Core\CodedThought.Core.csproj" />
-  </ItemGroup>
+  <Choose>
+	<When Condition="'$(Configuration)' == 'Release'">
+	  <ItemGroup>
+		<PackageReference Include="CodedThought.Core" Version="8.0.1.2" />
+	  </ItemGroup>
+	</When>
+  </Choose>
+
+  <Choose>
+	<When Condition="'$(Configuration)' == 'Debug'">
+	  <ItemGroup>
+		<ProjectReference Include="..\CodedThought.Core\CodedThought.Core\CodedThought.Core.csproj" />
+	  </ItemGroup>
+	</When>
+  </Choose>
 
   <ItemGroup>
 	<None Update="LICENSE" Pack="true" PackagePath="" />
