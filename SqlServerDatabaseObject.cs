@@ -707,7 +707,8 @@ namespace CodedThought.Core.Data.SqlServer
             return $"[{defaultSchema}].[{tableName}]";
 
         }
-        public override string GetSchemaName() => DefaultSchemaName == string.Empty ? "dbo" : DefaultSchemaName;
+        public override string GetSchemaName() => !String.IsNullOrEmpty(DefaultSchemaName) ? DefaultSchemaName : String.Empty;
+
         /// <summary>
         /// Gets the current session default schema name.
         /// </summary>
