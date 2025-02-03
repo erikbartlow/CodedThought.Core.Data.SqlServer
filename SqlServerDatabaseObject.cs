@@ -40,14 +40,15 @@ namespace CodedThought.Core.Data.SqlServer
         {
             try
             {
-                if( String.IsNullOrEmpty(_connection.ConnectionString)) _connection = new(ConnectionString);
+                if (String.IsNullOrEmpty(_connection.ConnectionString))
+                    _connection = new(ConnectionString);
                 if (_connection.State != ConnectionState.Open)
                     _connection.Open();
                 return _connection;
             }
             catch (SqlException ex)
             {
-                throw new Exceptions.CodedThoughtApplicationException("Could not open Connection.  Check connection string" + "/r/n" + ex.Message + "/r/n" + ex.StackTrace, ex);
+                throw new CodedThoughtApplicationException("Could not open Connection.  Check connection string" + "/r/n" + ex.Message + "/r/n" + ex.StackTrace, ex);
             }
         }
         /// <summary>
@@ -167,6 +168,7 @@ namespace CodedThought.Core.Data.SqlServer
         public override IDataParameter CreateParameter(object obj, TableColumn col, IDBStore store)
         {
             object extractedData = store.Extract(obj, col.Name);
+
             bool isNull;
             int sqlDataType;
             try
@@ -174,78 +176,80 @@ namespace CodedThought.Core.Data.SqlServer
                 switch (col.Type)
                 {
                     case DbTypeSupported.dbNVarChar:
-                        isNull = (extractedData == null || (string) extractedData == "");
+                        isNull = (col.IsNullableType && extractedData == null) || extractedData == null || (string) extractedData == "";
                         sqlDataType = (int) SqlDbType.NVarChar;
                         break;
 
                     case DbTypeSupported.dbVarChar:
-                        isNull = (extractedData == null || (string) extractedData == "");
+                        isNull = (col.IsNullableType && extractedData == null) || extractedData == null || (string) extractedData == "";
                         sqlDataType = (int) SqlDbType.VarChar;
                         break;
 
                     case DbTypeSupported.dbInt64:
-                        isNull = ((Int64) extractedData == Int64.MinValue);
+                        isNull = (col.IsNullableType && extractedData == null) || (Int64) extractedData == Int64.MinValue;
                         sqlDataType = (int) SqlDbType.BigInt;
                         break;
 
                     case DbTypeSupported.dbInt32:
-                        isNull = ((Int32) extractedData == int.MinValue);
+                        isNull = (col.IsNullableType && extractedData == null) || (Int32) extractedData == int.MinValue;
                         sqlDataType = (int) SqlDbType.Int;
                         break;
 
                     case DbTypeSupported.dbInt16:
-                        isNull = ((Int16) extractedData == Int16.MinValue);
+                        isNull = (col.IsNullableType && extractedData == null) || (Int16) extractedData == Int16.MinValue;
                         sqlDataType = (int) SqlDbType.SmallInt;
                         break;
 
                     case DbTypeSupported.dbDouble:
-                        isNull = ((double) extractedData == double.MinValue);
+                        isNull = (col.IsNullableType && extractedData == null) || (double) extractedData == double.MinValue;
                         sqlDataType = (int) SqlDbType.Float;
                         break;
 
                     case DbTypeSupported.dbDateTime:
-                        isNull = ((DateTime) extractedData == DateTime.MinValue);
+                        isNull = (col.IsNullableType && extractedData == null) || (DateTime) extractedData == DateTime.MinValue;
                         sqlDataType = (int) SqlDbType.DateTime;
                         break;
 
                     case DbTypeSupported.dbChar:
-                        isNull = (extractedData == null || System.Convert.ToString(extractedData) == "");
+                        isNull = (col.IsNullableType && extractedData == null) || extractedData == null || Convert.ToString(extractedData) == "";
                         sqlDataType = (int) SqlDbType.Char;
                         break;
 
                     case DbTypeSupported.dbBlob:    // Text, not Image
-                        isNull = (extractedData == null);
+                        isNull = (col.IsNullableType && extractedData == null) || extractedData == null;
                         sqlDataType = (int) SqlDbType.Binary;
                         break;
 
                     case DbTypeSupported.dbBit:
-                        isNull = (extractedData == null);
+                        isNull = (col.IsNullableType && extractedData == null) || extractedData == null;
                         sqlDataType = (int) SqlDbType.Bit;
                         break;
 
                     case DbTypeSupported.dbDecimal:
-                        isNull = ((decimal) extractedData == decimal.MinValue);
+                        isNull = (col.IsNullableType && extractedData == null) || (decimal) extractedData == decimal.MinValue;
                         sqlDataType = (int) SqlDbType.Decimal;
                         break;
 
                     case DbTypeSupported.dbImage:
                     case DbTypeSupported.dbVarBinary:
-                        isNull = (extractedData == null);
+                        isNull = extractedData == null;
                         sqlDataType = (int) SqlDbType.VarBinary;
                         break;
 
                     case DbTypeSupported.dbGUID:
-                        isNull = ((Guid) extractedData == Guid.Empty);
+                        isNull = (col.IsNullableType && extractedData == null) || (Guid) extractedData == Guid.Empty;
                         sqlDataType = (int) SqlDbType.UniqueIdentifier;
+                        if (col.IsPrimary && isNull)
+                            extractedData = Guid.NewGuid().ToString();
                         break;
 
                     default:
-                        throw new Exceptions.CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar");
+                        throw new CodedThoughtApplicationException($"Data type, {col.Type}, not supported.");
                 }
             }
             catch (Exception ex)
             {
-                throw new Exceptions.CodedThoughtApplicationException("Error creating Parameter", ex);
+                throw new CodedThoughtApplicationException("Error creating Parameter", ex);
             }
 
             SqlParameter parameter = CreatDbServerParam(col.Name, (SqlDbType) sqlDataType);
@@ -267,7 +271,7 @@ namespace CodedThought.Core.Data.SqlServer
         /// <param name="parameterName">Name of the parameter.</param>
         /// <param name="returnType">   Type of the return.</param>
         /// <returns></returns>
-        /// <exception cref="Exceptions.CodedThoughtApplicationException">
+        /// <exception cref="CodedThoughtApplicationException">
         /// Data type not supported. DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar
         /// </exception>
         public override IDataParameter CreateOutputParameter(string parameterName, DbTypeSupported returnType)
@@ -328,10 +332,10 @@ namespace CodedThought.Core.Data.SqlServer
                     break;
 
                 default:
-                    throw new Exceptions.CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar");
+                    throw new CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar");
             }
 
-            IDataParameter returnParam = CreatDbServerParam(parameterName, sqlType);
+            SqlParameter returnParam = CreatDbServerParam(parameterName, sqlType);
             returnParam.Direction = ParameterDirection.Output;
             return returnParam;
         }
@@ -340,7 +344,7 @@ namespace CodedThought.Core.Data.SqlServer
         /// <param name="parameterName"></param>
         /// <param name="returnType">   </param>
         /// <returns></returns>
-        /// <exception cref="Exceptions.CodedThoughtApplicationException">
+        /// <exception cref="CodedThoughtApplicationException">
         /// Data type not supported. DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar
         /// </exception>
         public override IDataParameter CreateReturnParameter(string parameterName, DbTypeSupported returnType)
@@ -401,7 +405,7 @@ namespace CodedThought.Core.Data.SqlServer
                     break;
 
                 default:
-                    throw new Exceptions.CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar");
+                    throw new CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar");
             }
 
             IDataParameter returnParam = CreatDbServerParam(parameterName, sqlType);
@@ -512,15 +516,19 @@ namespace CodedThought.Core.Data.SqlServer
         {
             try
             {
-                ParameterCollection parameters = new();
+                ParameterCollection parameters = [];
                 StringBuilder sbColumns = new();
                 StringBuilder sbValues = new();
+                TableColumn? keyColumn = null;
 
                 for (int i = 0; i < columns.Count; i++)
                 {
                     TableColumn col = columns[i];
+                    if (col.IsPrimary)
+                        keyColumn = col;
 
-                    if (col.IsInsertable)
+                    // If a column is updateable and a primary key column then it is not identity or autogenerated by the INSERT.
+                    if (!col.IsIdentity)
                     {
                         //we do not insert columns such as identity columns
                         IDataParameter parameter = CreateParameter(obj, col, store);
@@ -544,21 +552,28 @@ namespace CodedThought.Core.Data.SqlServer
                 BeginTransaction();
                 if (store.HasKeyColumn(obj))
                 {
-                    //Check if we have an identity Column
-                    sql.Append("SELECT SCOPE_IDENTITY() ");
-                    // ExecuteScalar will execute both the INSERT statement and the SELECT statement.
-                    int retval = System.Convert.ToInt32(ExecuteScalar(sql.ToString(), System.Data.CommandType.Text, parameters));
-                    store.SetPrimaryKey(obj, retval);
+                    if (keyColumn.IsIdentity)
+                    {
+                        //Check if we have an identity Column
+                        sql.Append("SELECT SCOPE_IDENTITY() ");
+                        // ExecuteScalar will execute both the INSERT statement and the SELECT statement.
+                        int retval = Convert.ToInt32(ExecuteScalar(sql.ToString(), CommandType.Text, parameters));
+                        store.SetPrimaryKey(obj, retval);
+                    }
+                    else
+                    {
+                        ExecuteNonQuery(sql.ToString(), CommandType.Text, parameters);
+                    }
                 }
                 else
                 {
-                    ExecuteNonQuery(sql.ToString(), System.Data.CommandType.Text, parameters);
+                    ExecuteNonQuery(sql.ToString(), CommandType.Text, parameters);
                 }
 
                 // this is the way to get the CONTEXT_INFO of a SQL connection session string contextInfo = System.Convert.ToString( ExecuteScalar( "SELECT dbo.AUDIT_LOG_GET_USER_NAME() ",
                 // System.Data.CommandType.Text, null ) );
             }
-            catch (Exceptions.CodedThoughtApplicationException irEx)
+            catch (CodedThoughtApplicationException irEx)
             {
                 RollbackTransaction();
                 // this is not a good method to catch DUPLICATE
@@ -568,13 +583,13 @@ namespace CodedThought.Core.Data.SqlServer
                 }
                 else
                 {
-                    throw new Exceptions.CodedThoughtApplicationException((string) ("Failed to add record to: " + tableName + "<BR>" + irEx.Message + "<BR>" + irEx.Source), (Exception) irEx);
+                    throw new CodedThoughtApplicationException((string) ("Failed to add record to: " + tableName + "<BR>" + irEx.Message + "<BR>" + irEx.Source), (Exception) irEx);
                 }
             }
             catch (Exception ex)
             {
                 RollbackTransaction();
-                throw new Exceptions.CodedThoughtApplicationException("Failed to add record to: " + tableName + "<BR>" + ex.Message + "<BR>" + ex.Source, ex);
+                throw new CodedThoughtApplicationException("Failed to add record to: " + tableName + "<BR>" + ex.Message + "<BR>" + ex.Source, ex);
             }
             finally
             {
@@ -610,7 +625,7 @@ namespace CodedThought.Core.Data.SqlServer
             }
             catch (Exception ex)
             {
-                throw new Exceptions.CodedThoughtApplicationException("Failed to add retrieve data from: " + tableName, ex);
+                throw new CodedThoughtApplicationException("Failed to add retrieve data from: " + tableName, ex);
             }
             finally
             {
@@ -647,7 +662,7 @@ namespace CodedThought.Core.Data.SqlServer
             // The DataReader's CommandBehavior must be CommandBehavior.SequentialAccess.
             if (DataReaderBehavior != CommandBehavior.SequentialAccess)
             {
-                throw new Exceptions.CodedThoughtApplicationException("Please set the DataReaderBehavior to SequentialAccess to call this method.");
+                throw new CodedThoughtApplicationException("Please set the DataReaderBehavior to SequentialAccess to call this method.");
             }
             SqlDataReader sqlReader = (SqlDataReader) reader;
             int bufferSize = 100;                   // Size of the BLOB buffer.
@@ -669,7 +684,7 @@ namespace CodedThought.Core.Data.SqlServer
             {
                 // Reposition the start index to the end of the last buffer and fill the buffer.
                 startIndex += bufferSize;
-                retval = sqlReader.GetBytes(position, startIndex, outBytes, System.Convert.ToInt32(startIndex), bufferSize);
+                retval = sqlReader.GetBytes(position, startIndex, outBytes, Convert.ToInt32(startIndex), bufferSize);
             }
 
             return outBytes;
@@ -1019,22 +1034,22 @@ namespace CodedThought.Core.Data.SqlServer
         /// <summary>Converts a database type name to a system type.</summary>
         /// <param name="dbTypeName">Name of the db type.</param>
         /// <returns>System.Type</returns>
-        public override System.Type ToSystemType(string dbTypeName) => dbTypeName.ToLower() switch
+        public override Type ToSystemType(string dbTypeName) => dbTypeName.ToLower() switch
         {
             "bigint" => typeof(System.Int64),
             "varbinary" or "binary" or "timestamp" => typeof(System.Byte[]),
             "bit" => typeof(System.Boolean),
             "char" or "nchar" or "ntext" or "nvarchar" or "text" or "varchar" => typeof(System.String),
-            "date" or "datetime" or "datetime2" => typeof(System.DateTime),
+            "date" or "datetime" or "datetime2" => typeof(DateTime),
             "numeric" => typeof(System.Decimal),
             "decimal" or "smallmoney" or "money" => typeof(System.Decimal),
             "float" => typeof(System.Double),
             "int" => typeof(System.Int32),
             "smallint" => typeof(System.Int16),
             "variant" => typeof(System.Object),
-            "time" => typeof(System.TimeSpan),
+            "time" => typeof(TimeSpan),
             "tinyint" => typeof(System.Byte),
-            "uniqueidentifier" => typeof(System.Guid),
+            "uniqueidentifier" => typeof(Guid),
             _ => typeof(System.String),
         };
         /// <summary>
