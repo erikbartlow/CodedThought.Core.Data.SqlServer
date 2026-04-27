@@ -3,7 +3,6 @@ using CodedThought.Core.Exceptions;
 
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging.Configuration;
-using Microsoft.Identity.Client;
 
 using Org.BouncyCastle.Security.Certificates;
 
