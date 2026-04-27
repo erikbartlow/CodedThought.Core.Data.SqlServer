@@ -1,13 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-	<TargetFramework>net8.0</TargetFramework>
+	<TargetFramework>net10.0</TargetFramework>
 	<ImplicitUsings>enable</ImplicitUsings>
 	<Nullable>enable</Nullable>
-	<AssemblyVersion>8.0.1.5</AssemblyVersion>
-	<FileVersion>8.0.1.5</FileVersion>
-	<VersionPrefix>8.0.1.5</VersionPrefix>
-	<Version>8.0.1.5</Version>
+	<AssemblyVersion>8.0.1.6</AssemblyVersion>
+	<FileVersion>8.0.1.6</FileVersion>
+	<VersionPrefix>8.0.1.6</VersionPrefix>
+	<Version>8.0.1.6</Version>
 	<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 	<Title>CodedThought.Core.Data.SqlServer</Title>
 	<Authors>Erik Bartlow</Authors>
@@ -25,11 +25,11 @@
 	<AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
 	<PublishRepositoryUrl>true</PublishRepositoryUrl>
 	<PackageReleaseNotes>Updated to use new Add override that allows passing the schema in and will use the default schema is not passed in and is available.</PackageReleaseNotes>
-	<Copyright>Copyright (c) 2025, Erik Bartlow, All Rights Reserved</Copyright>
+	<Copyright>Copyright (c) 2026, CodedThought, LLC, All Rights Reserved</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
+	<PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
   </ItemGroup>
 
   <Choose>

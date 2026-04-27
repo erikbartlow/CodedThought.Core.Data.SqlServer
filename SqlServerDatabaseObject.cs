@@ -59,6 +59,25 @@ namespace CodedThought.Core.Data.SqlServer {
                 throw;
             }
         }
+
+        // Participate in caller-managed transactions without committing them from inside CRUD methods.
+        private bool StartWriteTransaction() {
+            if (Transaction != null)
+                return false;
+
+            BeginTransaction();
+            return true;
+        }
+
+        private void CommitWriteTransaction(bool ownsTransaction) {
+            if (ownsTransaction)
+                CommitTransaction();
+        }
+
+        private void RollbackWriteTransaction(bool ownsTransaction) {
+            if (ownsTransaction && Transaction != null)
+                RollbackTransaction();
+        }
         #endregion Transaction and Connection Methods
 
         #region Other Override Methods
@@ -327,64 +346,23 @@ namespace CodedThought.Core.Data.SqlServer {
         /// Data type not supported. DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar
         /// </exception>
         public override IDataParameter CreateReturnParameter(string parameterName, DbTypeSupported returnType) {
-            SqlDbType sqlType;
-            switch (returnType) {
-                case DbTypeSupported.dbNVarChar:
-                    sqlType = SqlDbType.NVarChar;
-                    break;
-
-                case DbTypeSupported.dbVarChar:
-                    sqlType = SqlDbType.VarChar;
-                    break;
-
-                case DbTypeSupported.dbInt64:
-                    sqlType = SqlDbType.BigInt;
-                    break;
-
-                case DbTypeSupported.dbInt32:
-                    sqlType = SqlDbType.Int;
-                    break;
-
-                case DbTypeSupported.dbInt16:
-                    sqlType = SqlDbType.SmallInt;
-                    break;
-
-                case DbTypeSupported.dbDouble:
-                    sqlType = SqlDbType.Float;
-                    break;
-
-                case DbTypeSupported.dbDateTime:
-                    sqlType = SqlDbType.DateTime;
-                    break;
-
-                case DbTypeSupported.dbChar:
-                    sqlType = SqlDbType.Char;
-                    break;
-
-                case DbTypeSupported.dbBlob:    // Text, not Image
-                    sqlType = SqlDbType.Binary;
-                    break;
-
-                case DbTypeSupported.dbBit:
-                    sqlType = SqlDbType.Bit;
-                    break;
-
-                case DbTypeSupported.dbDecimal:
-                    sqlType = SqlDbType.Decimal;
-                    break;
-
-                case DbTypeSupported.dbImage:
-                    sqlType = SqlDbType.Image;
-                    break;
-
-                case DbTypeSupported.dbGUID:
-                    sqlType = SqlDbType.UniqueIdentifier;
-                    break;
-
-                default:
-                    throw new CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar");
-            }
-
+            SqlDbType sqlType = returnType switch {
+                DbTypeSupported.dbNVarChar => SqlDbType.NVarChar,
+                DbTypeSupported.dbVarChar => SqlDbType.VarChar,
+                DbTypeSupported.dbInt64 => SqlDbType.BigInt,
+                DbTypeSupported.dbInt32 => SqlDbType.Int,
+                DbTypeSupported.dbInt16 => SqlDbType.SmallInt,
+                DbTypeSupported.dbDouble => SqlDbType.Float,
+                DbTypeSupported.dbDateTime => SqlDbType.DateTime,
+                DbTypeSupported.dbChar => SqlDbType.Char,
+                // Text, not Image
+                DbTypeSupported.dbBlob => SqlDbType.Binary,
+                DbTypeSupported.dbBit => SqlDbType.Bit,
+                DbTypeSupported.dbDecimal => SqlDbType.Decimal,
+                DbTypeSupported.dbImage => SqlDbType.Image,
+                DbTypeSupported.dbGUID => SqlDbType.UniqueIdentifier,
+                _ => throw new CodedThoughtApplicationException("Data type not supported.  DataTypes currently supported are: DbTypeSupported.dbString, DbTypeSupported.dbInt32, DbTypeSupported.dbDouble, DbTypeSupported.dbDateTime, DbTypeSupported.dbChar"),
+            };
             IDataParameter returnParam = CreatDbServerParam(parameterName, sqlType);
             returnParam.Direction = ParameterDirection.ReturnValue;
             return returnParam;
@@ -471,6 +449,33 @@ namespace CodedThought.Core.Data.SqlServer {
 
         public override IDataParameter CreateBetweenParameter(string srcTableColumnName, BetweenParameter betweenParam) => throw new NotImplementedException();
 
+        public override int ExecuteNonQuery(string commandText, CommandType type, ParameterCollection parameters) {
+            if (Transaction == null)
+                return base.ExecuteNonQuery(commandText, type, parameters);
+
+            try {
+                if (Connection.State == ConnectionState.Closed)
+                    OpenConnection();
+
+                using IDbCommand cmd = Connection.CreateCommand();
+                cmd.CommandText = commandText;
+                cmd.CommandType = type;
+                cmd.CommandTimeout = CommandTimeout > -1 ? CommandTimeout : Connection.ConnectionTimeout;
+                cmd.Prepare();
+                cmd.Transaction = Transaction;
+
+                AddParametersToCommand(parameters, cmd);
+
+                int affected = cmd.ExecuteNonQuery();
+
+                ExtractAndReloadParameterCollection(parameters, cmd);
+                return affected;
+            }
+            catch (Exception ex) {
+                throw new CodedThoughtApplicationException(ex.Message + "[" + commandText + "]", ex);
+            }
+        }
+
         #endregion Parameters
 
         #region Add method
@@ -481,7 +486,6 @@ namespace CodedThought.Core.Data.SqlServer {
         /// <param name="columns">  </param>
         /// <param name="store">    </param>
         /// <returns></returns>
-
         public override void Add(string tableName, object obj, List<TableColumn> columns, IDBStore store) => Add(tableName, GetSchemaName(), obj, columns, store);
         /// <summary>Adds data to the database</summary>
         /// <param name="tableName"></param>
@@ -489,8 +493,9 @@ namespace CodedThought.Core.Data.SqlServer {
         /// <param name="columns">  </param>
         /// <param name="store">    </param>
         /// <returns></returns>
-
         public override void Add(string tableName, string schemaName, object obj, List<TableColumn> columns, IDBStore store) {
+            bool ownsTransaction = StartWriteTransaction();
+
             try {
                 ParameterCollection parameters = [];
                 StringBuilder sbColumns = new();
@@ -512,7 +517,7 @@ namespace CodedThought.Core.Data.SqlServer {
                     }
                 }
 
-                StringBuilder sql = new($"INSERT INTO {GetTableName(schemaName,tableName)} (");
+                StringBuilder sql = new($"INSERT INTO {GetTableName(schemaName,tableName)}{GenerateWriteTableHint()} (");
                 sql.Append(sbColumns.Remove(0, 2));
                 sql.Append(") VALUES (");
                 sql.Append(sbValues.Remove(0, 2));
@@ -523,9 +528,8 @@ namespace CodedThought.Core.Data.SqlServer {
                 DebugParameters(sql, tableName, parameters);
 #endif
                 // ================================================================
-                BeginTransaction();
                 if (store.HasKeyColumn(obj)) {
-                    if (keyColumn.IsIdentity) {
+                    if (keyColumn?.IsIdentity == true) {
                         //Check if we have an identity Column
                         sql.Append("SELECT SCOPE_IDENTITY() ");
                         // ExecuteScalar will execute both the INSERT statement and the SELECT statement.
@@ -540,9 +544,10 @@ namespace CodedThought.Core.Data.SqlServer {
 
                 // this is the way to get the CONTEXT_INFO of a SQL connection session string contextInfo = System.Convert.ToString( ExecuteScalar( "SELECT dbo.AUDIT_LOG_GET_USER_NAME() ",
                 // System.Data.CommandType.Text, null ) );
+                CommitWriteTransaction(ownsTransaction);
             }
             catch (CodedThoughtApplicationException irEx) {
-                RollbackTransaction();
+                RollbackWriteTransaction(ownsTransaction);
                 // this is not a good method to catch DUPLICATE
                 if (irEx.Message.Contains("duplicate key", StringComparison.CurrentCulture)) {
                     throw new FolderException(irEx.Message, (Exception) irEx);
@@ -551,21 +556,80 @@ namespace CodedThought.Core.Data.SqlServer {
                 }
             }
             catch (Exception ex) {
-                RollbackTransaction();
+                RollbackWriteTransaction(ownsTransaction);
                 throw new CodedThoughtApplicationException("Failed to add record to: " + tableName + "<BR>" + ex.Message + "<BR>" + ex.Source, ex);
-            }
-            finally {
-                CommitTransaction();
             }
         }
 
         #endregion Add method
+
+        #region Remove Methods
+
+        public override void Remove(string tableName, ParameterCollection parameters) => Remove(tableName, string.Empty, parameters);
+
+        public override void Remove(string tableName, string schemaName, ParameterCollection parameters) {
+            bool ownsTransaction = StartWriteTransaction();
+
+            try {
+                ParameterCollection deleteParameters = parameters ?? [];
+                string sql = $"DELETE FROM {GetTableName(schemaName, tableName)}{GenerateWriteTableHint()} ";
+
+                if (deleteParameters.Count > 0) {
+                    sql += $"WHERE {GenerateWhereClauseFromParams(deleteParameters)}";
+                }
+
+                ExecuteNonQuery(sql, deleteParameters);
+                CommitWriteTransaction(ownsTransaction);
+            }
+            catch (Exception ex) {
+                RollbackWriteTransaction(ownsTransaction);
+                throw new CodedThoughtApplicationException("Failed to delete record from: " + tableName, ex);
+            }
+        }
+
+        #endregion Remove Methods
+
+        #region Update Methods
+
+        public override void Update(string tableName, ParameterCollection parameters, ParameterCollection whereParamCollection) => Update(tableName, string.Empty, parameters, whereParamCollection);
+
+        public override void Update(string tableName, string schemaName, ParameterCollection parameters, ParameterCollection whereParamCollection) {
+            bool ownsTransaction = StartWriteTransaction();
+
+            try {
+                StringBuilder sql = new();
+                sql.Append($"UPDATE {GetTableName(schemaName, tableName)}{GenerateWriteTableHint()} SET ");
+                sql.Append(GenerateUpdateList(parameters));
+
+                if (whereParamCollection != null && whereParamCollection.Count > 0) {
+                    sql.Append(" WHERE " + GenerateWhereClauseFromParams(whereParamCollection));
+
+                    //Add where clause to the parameter collection
+                    parameters.Add(whereParamCollection);
+                    //empty where collection
+                    whereParamCollection.Clear();
+                }
+
+                ExecuteNonQuery(sql.ToString(), parameters);
+                CommitWriteTransaction(ownsTransaction);
+            }
+            catch (Exception ex) {
+                RollbackWriteTransaction(ownsTransaction);
+                throw new CodedThoughtApplicationException("Failed to update record to: " + tableName, ex);
+            }
+        }
+
+        #endregion Update Methods
 
         #region GetValue Methods
 
         /// <summary>
         /// Gets a data reader based on table name, columns names etc.
         /// </summary>
+        /// <param name="tableName"></param>
+        /// <param name="selectColumns"></param>
+        /// <param name="parameters"></param>
+        /// <param name="orderByColumns"></param>
         /// <returns><see cref="IDataReader"/></returns>
         /// <remarks>The schema name is no longer utilized.  Please pass the entire table name.</remarks>
         public override IDataReader Get(string tableName, string schemaName, List<string> selectColumns, ParameterCollection parameters, List<string> orderByColumns) {
@@ -574,7 +638,7 @@ namespace CodedThought.Core.Data.SqlServer {
                 StringBuilder sql = new("SELECT ");
                 sql.Append(GenerateColumnList(selectColumns));
                 sql.Append($" FROM {GetTableName(schemaName, tableName)}");
-                sql.Append(" WITH (READPAST)");
+                sql.Append(GenerateReadTableHint());
                 if (parameters != null && parameters.Count > 0) {
                     sql.Append(" WHERE " + GenerateWhereClauseFromParams(parameters));
                 }
@@ -666,11 +730,18 @@ namespace CodedThought.Core.Data.SqlServer {
 
         public override DBSupported SupportedDatabase => DBSupported.SqlServer;
 
+        /// <summary>
+        /// Constructs a fully qualified table name using the specified schema and table name.
+        /// </summary>
+        /// <param name="defaultSchema">The schema to use; if null or empty, the default schema is retrieved.</param>
+        /// <param name="tableName">The name of the table.</param>
+        /// <returns>A fully qualified table name in the format '[schema].[tableName]' or '[tableName]' if no schema is
+        /// specified.</returns>
         public override string GetTableName(string? defaultSchema, string tableName) {
             if (String.IsNullOrEmpty(defaultSchema)) {
                 defaultSchema = GetSchemaName();
             }
-            return !string.IsNullOrEmpty(defaultSchema) ? $"[{defaultSchema}].[{tableName}]" : $"[{tableName}";
+            return !string.IsNullOrEmpty(defaultSchema) ? $"[{defaultSchema}].[{tableName}]" : $"[{tableName}]";
 
         }
         public override string GetSchemaName() => !String.IsNullOrEmpty(DefaultSchemaName) ? DefaultSchemaName : String.Empty;
